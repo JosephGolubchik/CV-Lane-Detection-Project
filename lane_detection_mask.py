@@ -1,21 +1,24 @@
 import cv2
 import numpy as np
 import canny
+import hough
 
 def main():
-    cap = cv2.VideoCapture('vids/test1.mp4')
-    out = cv2.VideoWriter('res1_opencv.mp4', cv2.VideoWriter_fourcc(*'MP42'), 30, (1280, 720))
+    cap = cv2.VideoCapture('vids/test91.mp4')
+    out = cv2.VideoWriter('res1_opencv.mp4', cv2.VideoWriter_fourcc(*'mp4v'), 30, (1280, 720))
     prev_best_two = None
     while cap.isOpened():
         ret, frame = cap.read()
         if ret:
+                # frame, prev_best_two = lane_detection_ours(frame, prev_best_two)
+                frame, prev_best_two = lane_detection(frame, prev_best_two)
+                if len(frame.shape) < 3:
+                    frame = cv2.merge((frame, frame, frame))
+                cv2.imshow('', frame)
+                out.write(frame)
 
-            frame, prev_best_two = lane_detection(frame, prev_best_two)
-            cv2.imshow('', frame)
-            out.write(frame)
-
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
         else:
             cap.release()
             out.release()
@@ -23,11 +26,13 @@ def main():
 
 
 def lane_detection(img, prev_best_two=None):
-    """Detects lanes in a given image"""
+    """Detects lanes in a given image using OpenCV functions"""
+    # Apply gaussian blur to get better edge detection later on
+    blurred = cv2.GaussianBlur(img, (11,11), -1)
     # Detect yellow lane lines by keeping only yellowish pixels
-    yellow = only_yellow(img)
+    yellow = only_yellow(blurred)
     # Detect white lane lines by keeping only whiteish pixels
-    white = only_white(img)
+    white = only_white(blurred)
     # Combine the detected yellow and white lane lines
     ynw = np.zeros(white.shape)
     w_ind = np.where(yellow > 0)
@@ -35,11 +40,11 @@ def lane_detection(img, prev_best_two=None):
     ynw[w_ind] = 1
     ynw[y_ind] = 1
     # Apply a region of interest mask to the detected lane line pixels to get rid of irrelevent information
-    masked = apply_mask(ynw, 'img/mask11.png')
+    masked = apply_mask(ynw, 'img/mask9.png')
     # Apply canny edge detection
-    edges = cv2.Canny(masked, 100, 200)
+    edges = cv2.Canny(masked, 100, 150)
     # Find lines in the edge image using the hough transform
-    lines = hough_lines(edges, 15, 15)
+    lines = hough_lines(edges, 30, 15)
     # Group all the found lines into seperate groups and generate an average line for every group
     avg_lines = avg_of_line_groups(lines)
     # Choose the two average lines that are closest to a straight up line, because that means they're closest to the
@@ -51,15 +56,17 @@ def lane_detection(img, prev_best_two=None):
     if prev_best_two is not None:
         if len(best_two) < 2:
             best_two = prev_best_two
-        diff = abs(best_two[0][0][0] - prev_best_two[0][0][0]) + abs(best_two[0][0][1] - prev_best_two[0][0][1]) + \
-               abs(best_two[1][0][0] - prev_best_two[1][0][0]) + abs(best_two[1][0][1] - prev_best_two[1][0][1])
-        if diff > 80:
-            best_two = prev_best_two
         else:
-            best_two = [[[(1 - prev_importance) * best_two[0][0][0] + prev_importance * prev_best_two[0][0][0],
-                          (1 - prev_importance) * best_two[0][0][1] + prev_importance * prev_best_two[0][0][1]]],
-                        [[(1 - prev_importance) * best_two[1][0][0] + prev_importance * prev_best_two[1][0][0],
-                          (1 - prev_importance) * best_two[1][0][1] + prev_importance * prev_best_two[1][0][1]]]]
+            if len(prev_best_two) >= 2:
+                diff = abs(best_two[0][0][0] - prev_best_two[0][0][0]) + abs(best_two[0][0][1] - prev_best_two[0][0][1]) + \
+                       abs(best_two[1][0][0] - prev_best_two[1][0][0]) + abs(best_two[1][0][1] - prev_best_two[1][0][1])
+                if diff > 80:
+                    best_two = prev_best_two
+                else:
+                    best_two = [[[(1 - prev_importance) * best_two[0][0][0] + prev_importance * prev_best_two[0][0][0],
+                                  (1 - prev_importance) * best_two[0][0][1] + prev_importance * prev_best_two[0][0][1]]],
+                                [[(1 - prev_importance) * best_two[1][0][0] + prev_importance * prev_best_two[1][0][0],
+                                  (1 - prev_importance) * best_two[1][0][1] + prev_importance * prev_best_two[1][0][1]]]]
     prev_best_two = best_two
     # Draw the lane in green on top of the frame
     rect_img = draw_lane_rect(img, best_two)
@@ -67,11 +74,13 @@ def lane_detection(img, prev_best_two=None):
 
 
 def lane_detection_ours(img, prev_best_two=None):
-    """Detects lanes in a given image"""
+    """Detects lanes in a given image using our implementations of Canny Edge Detection and Hough Transform"""
+    # Apply gaussian blur to get better edge detection later on
+    blurred = cv2.GaussianBlur(img, (11,11), -1)
     # Detect yellow lane lines by keeping only yellowish pixels
-    yellow = only_yellow(img)
+    yellow = only_yellow(blurred)
     # Detect white lane lines by keeping only whiteish pixels
-    white = only_white(img)
+    white = only_white(blurred)
     # Combine the detected yellow and white lane lines
     ynw = np.zeros(white.shape)
     w_ind = np.where(yellow > 0)
@@ -79,11 +88,13 @@ def lane_detection_ours(img, prev_best_two=None):
     ynw[w_ind] = 1
     ynw[y_ind] = 1
     # Apply a region of interest mask to the detected lane line pixels to get rid of irrelevent information
-    masked = apply_mask(ynw, 'img/mask11.png')
+    masked = apply_mask(ynw, 'img/mask9.png')
     # Apply canny edge detection
-    edges = canny.Canny(masked, 0, 50)
-    # Find lines in the edge image using the hough transform
-    lines = hough_lines(edges, 15, 15)
+    # edges = canny.Canny(masked, 0, 150)
+    edges = cv2.Canny(masked, 100, 150)
+    # # Find lines in the edge image using the hough transform
+    # lines = hough_lines(edges, 30, 15)
+    lines = hough.HoughLines(edges, 30, 15)
     # Group all the found lines into seperate groups and generate an average line for every group
     avg_lines = avg_of_line_groups(lines)
     # Choose the two average lines that are closest to a straight up line, because that means they're closest to the
@@ -96,15 +107,16 @@ def lane_detection_ours(img, prev_best_two=None):
         if len(best_two) < 2:
             best_two = prev_best_two
         else:
-            diff = abs(best_two[0][0][0] - prev_best_two[0][0][0]) + abs(best_two[0][0][1] - prev_best_two[0][0][1]) + \
-                   abs(best_two[1][0][0] - prev_best_two[1][0][0]) + abs(best_two[1][0][1] - prev_best_two[1][0][1])
-            if diff > 80:
-                best_two = prev_best_two
-            else:
-                best_two = [[[(1 - prev_importance) * best_two[0][0][0] + prev_importance * prev_best_two[0][0][0],
-                              (1 - prev_importance) * best_two[0][0][1] + prev_importance * prev_best_two[0][0][1]]],
-                            [[(1 - prev_importance) * best_two[1][0][0] + prev_importance * prev_best_two[1][0][0],
-                              (1 - prev_importance) * best_two[1][0][1] + prev_importance * prev_best_two[1][0][1]]]]
+            if len(prev_best_two) >= 2:
+                diff = abs(best_two[0][0][0] - prev_best_two[0][0][0]) + abs(best_two[0][0][1] - prev_best_two[0][0][1]) + \
+                       abs(best_two[1][0][0] - prev_best_two[1][0][0]) + abs(best_two[1][0][1] - prev_best_two[1][0][1])
+                if diff > 80:
+                    best_two = prev_best_two
+                else:
+                    best_two = [[[(1 - prev_importance) * best_two[0][0][0] + prev_importance * prev_best_two[0][0][0],
+                                  (1 - prev_importance) * best_two[0][0][1] + prev_importance * prev_best_two[0][0][1]]],
+                                [[(1 - prev_importance) * best_two[1][0][0] + prev_importance * prev_best_two[1][0][0],
+                                  (1 - prev_importance) * best_two[1][0][1] + prev_importance * prev_best_two[1][0][1]]]]
     prev_best_two = best_two
     # Draw the lane in green on top of the frame
     rect_img = draw_lane_rect(img, best_two)
@@ -137,8 +149,8 @@ def draw_lane_rect(img, best_two):
         road_mask = img.copy()
         cv2.drawContours(road_mask, [pts], 0, (0, 255, 0, 100), -1)
         road_mask[0:yc + int(img.shape[0] * 0.04), :] = img[0:yc + int(img.shape[0] * 0.04), :]
-        img = img * 0.7 + road_mask * 0.3
-        img_lines = cv2.normalize(src=img, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX,
+        img_lines = img * 0.7 + road_mask * 0.3
+        img_lines = cv2.normalize(src=img_lines, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX,
                                   dtype=cv2.CV_8UC1)
         return img_lines
 
@@ -157,7 +169,9 @@ def brighten_dark_frame(img):
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     avg_val = np.mean(hsv[img.shape[0] // 2:, :, 2])
     if avg_val < 60:
-        img = adjust_gamma(img, 3)
+        v = adjust_gamma(hsv[:,:,2], 1)
+        hsv = cv2.merge((hsv[:,:,0], hsv[:,:,1], v))
+        img = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
     return img
 
 
@@ -165,8 +179,8 @@ def only_white(img):
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     img_hls_white_bin = np.zeros_like(hsv[:, :, 0])
     img_hls_white_bin[((hsv[:, :, 0] >= 0) & (hsv[:, :, 0] <= 255))
-                      & ((hsv[:, :, 1] >= 0) & (hsv[:, :, 1] <= 30 / 100 * 255))
-                      & ((hsv[:, :, 2] >= 55 / 100 * 255) & (hsv[:, :, 2] <= 255))
+                      & ((hsv[:, :, 1] >= 0) & (hsv[:, :, 1] <= 20 / 100 * 255))
+                      & ((hsv[:, :, 2] >= 70 / 100 * 255) & (hsv[:, :, 2] <= 255))
                       ] = 1
 
     img_hls_white_bin = cv2.normalize(src=img_hls_white_bin, dst=None, alpha=0, beta=255,
@@ -208,7 +222,7 @@ def line_groups(lines):
         lines2.sort()
 
         group = 0
-        group_thresh = 100
+        group_thresh = 80
 
         can_continue = False
         lines = lines2
@@ -281,10 +295,7 @@ def avg_of_line_groups(lines):
 
 def draw_lines(img, lines, color=(0, 0, 255)):
     if len(img.shape) < 3:
-        img_lines = np.zeros((img.shape[0], img.shape[1], 3))
-        img_lines[:, :, 0] = img
-        img_lines[:, :, 1] = img
-        img_lines[:, :, 2] = img
+        img_lines = cv2.merge((img, img, img))
     else:
         img_lines = img.copy()
     if lines != [[]]:
